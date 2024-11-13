@@ -1,0 +1,34 @@
+---
+import Layout from "../layouts/Layout.astro";
+const repo = Astro.url.searchParams.get("repo");
+
+const text = Astro.url.searchParams.get("repo").split("/").slice(-2).join("/");
+---
+
+<Layout title="Loading... ">
+    <main class="container center">
+        <div>
+            <h3>Fetching data for {text}</h3>
+            <p>
+                Please wait while we fetch the data for the repository.
+            </p>
+            <progress />
+        </div>
+    </main>
+</Layout>
+
+<style>
+    .center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+    }
+</style>
+
+<script define:vars={{repo: repo}}>
+    setTimeout(() => {
+        window.location.href = `/browse?repo=${repo}`;
+    }, 1000);
+</script>

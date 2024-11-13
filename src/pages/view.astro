@@ -1,0 +1,79 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { marked } from 'marked';
+import { fixForURL, fixForURLDecode } from "../lib/string-utils";
+import { fetchData } from "../lib/github-utils";
+import { pathTransformer } from "../lib/path-transformer.js";
+
+const repo = Astro.url.searchParams.get("repo");
+const file = fixForURLDecode(Astro.url.searchParams.get("file"));
+const [owner, repoName] = repo.split("/").slice(-2);
+
+const fileData = await fetchData(owner, repoName, file);
+const content = atob(fileData.content);
+let text = new TextDecoder("utf-8").decode(Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0)));
+const isMarkdown = file.endsWith(".md");
+
+const folder = file.split("/").slice(0, -1).join("/");
+
+let filesInFolder = await fetchData(owner, repoName, folder);
+// Find all [[wikilinks]] in the text and transform them into links, needs to look throught the text and then call the transformer on each file separately
+// const wikilinks = text.match(/\[\[([^\]]+)\]\]/g);
+// if (wikilinks) {
+//     for (const link of wikilinks) {
+//         const file = link.slice(2, -2);
+//         const transformed = pathTransformer(file, folder);
+//         text = text.replace(link, `[link](${transformed})`);
+//     }
+// }
+
+const parentPath = folder ? folder.split("/").slice(0, -1).join("/") : "";
+filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
+---
+
+<Layout title="Viewing File">
+    <main class="container">
+        <aside class="sidebar">
+            <h2>{folder || "/"}</h2>
+            {folder && <a href={`/browse?repo=${encodeURIComponent(repo)}&file=${fixForURL(parentPath)}`}>.. (Go up)</a>}
+            <ul>
+                {filesInFolder.map(file =>
+                    <li>
+                        <a href={`/browse?repo=${encodeURIComponent(repo)}&file=${fixForURL(file.path)}`}>{file.name}</a>
+                    </li>
+                )}
+            </ul>
+        </aside>
+        <section class="file-content">
+            <h1>{file}</h1>
+            {isMarkdown ? <div set:html={marked(text)} /> : <pre>{content}</pre>}
+        </section>
+    </main>
+</Layout>
+
+<style>
+.container {
+    display: flex;
+    padding: 2rem;
+    }
+
+.sidebar {
+    width: 200px;
+    margin-right: 2rem;
+    }
+
+.file-content {
+    flex: 1;
+    }
+
+a {
+    text-decoration: none;
+    color: #4f39fa;
+    }
+
+a:hover {
+    text-decoration: underline;
+    }
+</style>
+
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
