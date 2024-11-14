@@ -74,12 +74,18 @@ MathJax = {
     flex: 1;
     }
 
-a {
+.sidebar a {
     text-decoration: none;
     color: #4f39fa;
     }
 
-a:hover {
+.sidebar a:hover {
     text-decoration: underline;
     }
+
+@media only screen and (max-width: 500px) {
+    .container {
+        flex-direction: column-reverse;
+    }
+}
 </style>
