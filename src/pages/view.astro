@@ -38,7 +38,7 @@ function replaceSmilesCodeBlocks(markdown) {
   return markdown.replace(smilesCodeBlockRegex, (match, smilesContent) => {
     // Trim the SMILES content to remove any extra whitespace or line breaks
     const trimmedSmiles = smilesContent.trim();
-    return `<svg data-smiles="${trimmedSmiles}" />`;
+    return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
   });
 }
 
@@ -100,6 +100,11 @@ MathJax = {
 .sidebar a:hover {
     text-decoration: underline;
     }
+
+:global(svg) {
+    max-height: 4em;
+    max-width: 400px;
+}
 
 @media only screen and (max-width: 500px) {
     .container {
