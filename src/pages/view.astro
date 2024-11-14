@@ -29,6 +29,20 @@ let filesInFolder = await fetchData(owner, repoName, folder);
 
 const parentPath = folder ? folder.split("/").slice(0, -1).join("/") : "";
 filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
+
+function replaceSmilesCodeBlocks(markdown) {
+  // Regular expression to match code blocks with language 'smiles'
+  const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
+  
+  // Replace each matched code block with the <svg> element
+  return markdown.replace(smilesCodeBlockRegex, (match, smilesContent) => {
+    // Trim the SMILES content to remove any extra whitespace or line breaks
+    const trimmedSmiles = smilesContent.trim();
+    return `<svg data-smiles="${trimmedSmiles}" />`;
+  });
+}
+
+text = replaceSmilesCodeBlocks(text);
 ---
 
 <Layout title="Viewing File">
@@ -57,6 +71,10 @@ MathJax = {
 };
 </script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" is:inline></script>
+<script type="text/javascript" src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js" is:inline></script>
+    <script is:inline>
+        SmiDrawer.apply();
+    </script>
 </Layout>
 
 <style>
