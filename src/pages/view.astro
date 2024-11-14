@@ -49,6 +49,14 @@ filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
             {isMarkdown ? <div set:html={marked(text)} /> : <pre>{content}</pre>}
         </section>
     </main>
+<script is:inline>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$']]
+  }
+};
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" is:inline></script>
 </Layout>
 
 <style>
@@ -75,12 +83,3 @@ a:hover {
     text-decoration: underline;
     }
 </style>
-
-<script>
-MathJax = {
-  tex: {
-    inlineMath: [['$', '$']]
-  }
-};
-</script>
-<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
