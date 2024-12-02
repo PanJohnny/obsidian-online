@@ -17,16 +17,6 @@ const isMarkdown = file.endsWith(".md");
 const folder = file.split("/").slice(0, -1).join("/");
 
 let filesInFolder = await fetchData(owner, repoName, folder);
-// Find all [[wikilinks]] in the text and transform them into links, needs to look throught the text and then call the transformer on each file separately
-const wikilinks = text.match(/\[\[([^\]]+)\]\]/g);
-if (wikilinks) {
-    for (const link of wikilinks) {
-        // TODO: properly implement
-        const file = filesInFolder.find(f => f.name === link.slice(2, -2))?.path || link.slice(2, -2);
-        const transformed = pathTransformer(file, folder);
-        text = text.replace(link, `[link](/view?repo=${fixForURL(repo)}&file=${fixForURL(transformed)})`);
-    }
-}
 
 if (!isMarkdown ) {
   const fileExtension = file.split('.').pop();
