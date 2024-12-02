@@ -65,11 +65,22 @@ if (!isMarkdown ) {
       contentType = 'application/octet-stream';
   }
 
-  return new Response(content, {
-    headers: {
-      'Content-Type': contentType
-    }
-  });
+  if (contentType.startsWith('image/')) {
+    const blob = new Blob([Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0))], { type: contentType });
+    const objectURL = URL.createObjectURL(blob);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': objectURL
+      }
+    });
+  } else {
+    return new Response(content, {
+      headers: {
+        'Content-Type': contentType
+      }
+    });
+  }
 }
 
 const parentPath = folder ? folder.split("/").slice(0, -1).join("/") : "";
