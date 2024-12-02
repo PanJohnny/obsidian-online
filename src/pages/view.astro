@@ -58,10 +58,9 @@ if (!isMarkdown ) {
   if (contentType.startsWith('image/')) {
     const blob = new Blob([Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0))], { type: contentType });
     const objectURL = URL.createObjectURL(blob);
-    return new Response(null, {
-      status: 302,
+    return new Response(blob, {
       headers: {
-        'Location': objectURL
+      'Content-Type': contentType
       }
     });
   } else {
