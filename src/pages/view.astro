@@ -43,6 +43,8 @@ function replaceSmilesCodeBlocks(markdown) {
 }
 
 text = replaceSmilesCodeBlocks(text);
+
+const fileName = file.split("/").pop().split(".")[0];
 ---
 
 <Layout title="Viewing File">
@@ -59,7 +61,7 @@ text = replaceSmilesCodeBlocks(text);
             </ul>
         </aside>
         <section class="file-content">
-            <h1>{file}</h1>
+            <h1>{fileName}</h1>
             {isMarkdown ? <div set:html={marked(text)} /> : <pre>{content}</pre>}
         </section>
     </main>
@@ -109,6 +111,12 @@ MathJax = {
 @media only screen and (max-width: 500px) {
     .container {
         flex-direction: column-reverse;
+    }
+}
+
+@media print {
+    .sidebar {
+        display: none;
     }
 }
 </style>
