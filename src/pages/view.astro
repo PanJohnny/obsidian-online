@@ -18,14 +18,59 @@ const folder = file.split("/").slice(0, -1).join("/");
 
 let filesInFolder = await fetchData(owner, repoName, folder);
 // Find all [[wikilinks]] in the text and transform them into links, needs to look throught the text and then call the transformer on each file separately
-// const wikilinks = text.match(/\[\[([^\]]+)\]\]/g);
-// if (wikilinks) {
-//     for (const link of wikilinks) {
-//         const file = link.slice(2, -2);
-//         const transformed = pathTransformer(file, folder);
-//         text = text.replace(link, `[link](${transformed})`);
-//     }
-// }
+const wikilinks = text.match(/\[\[([^\]]+)\]\]/g);
+if (wikilinks) {
+    for (const link of wikilinks) {
+        // TODO: properly implement
+        const file = filesInFolder.find(f => f.name === link.slice(2, -2))?.path || link.slice(2, -2);
+        const transformed = pathTransformer(file, folder);
+        text = text.replace(link, `[link](/view?repo=${fixForURL(repo)}&file=${fixForURL(transformed)})`);
+    }
+}
+
+if (!isMarkdown ) {
+  const fileExtension = file.split('.').pop();
+  let contentType;
+
+  switch (fileExtension) {
+    case 'html':
+      contentType = 'text/html';
+      break;
+    case 'css':
+      contentType = 'text/css';
+      break;
+    case 'js':
+      contentType = 'application/javascript';
+      break;
+    case 'json':
+      contentType = 'application/json';
+      break;
+    case 'txt':
+      contentType = 'text/plain';
+      break;
+    case 'png':
+      contentType = 'image/png';
+      break;
+    case 'jpg':
+    case 'jpeg':
+      contentType = 'image/jpeg';
+      break;
+    case 'gif':
+      contentType = 'image/gif';
+      break;
+    case 'svg':
+      contentType = 'image/svg+xml';
+      break;
+    default:
+      contentType = 'application/octet-stream';
+  }
+
+  return new Response(content, {
+    headers: {
+      'Content-Type': contentType
+    }
+  });
+}
 
 const parentPath = folder ? folder.split("/").slice(0, -1).join("/") : "";
 filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
