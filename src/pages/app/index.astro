@@ -1,0 +1,442 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { fixForURL, fixForURLDecode } from "../../lib/string-utils";
+import { fetchRepoTree, fetchFile } from "../../lib/github-utils";
+import { marked } from "marked";
+
+// Utility Class to handle the repository and file operations
+class RepositoryViewer {
+    url;
+    repo;
+    view;
+    path;
+    displayData;
+    displayName;
+    isMarkdown;
+    tree;
+
+    constructor(url) {
+        this.url = url;
+        this.repo = url.searchParams.get("repo");
+        this.view = url.searchParams.get("view");
+        this.path = url.searchParams.get("path");
+        this.displayData = "";
+        this.displayName = "";
+        this.isMarkdown = false;
+        this.tree = [];
+    }
+
+    async initialize() {
+        try {
+            this.tree = await this.fetchAndBuildTree();
+            const res = await this.fetchFileData();
+            if (res) {
+                return res;
+            }
+        } catch (error) {
+            console.error("Initialization error:", error);
+        }
+    }
+
+    async fetchFileData() {
+        if (!this.view) return;
+
+        try {
+            this.view = fixForURLDecode(this.view);
+            const fileData = await fetchFile(this.view);
+            const content = atob(fileData.content);
+            this.displayData = new TextDecoder("utf-8").decode(
+                Uint8Array.from(content, (c) => c.charCodeAt(0)),
+            );
+
+            this.path = this.path ? fixForURLDecode(this.path) : "";
+            this.displayName = this.path.split("/").pop();
+            this.isMarkdown = this.path.endsWith(".md");
+
+            if (this.isMarkdown) {
+                this.displayData = this.formatMarkdown(this.displayData);
+                this.displayName = this.displayName.replace(".md", "");
+            } else {
+                const fileExtension = this.path.split(".").pop();
+                let contentType;
+
+                switch (fileExtension) {
+                    case "html":
+                        contentType = "text/html";
+                        break;
+                    case "css":
+                        contentType = "text/css";
+                        break;
+                    case "js":
+                        contentType = "application/javascript";
+                        break;
+                    case "json":
+                        contentType = "application/json";
+                        break;
+                    case "txt":
+                        contentType = "text/plain";
+                        break;
+                    case "png":
+                        contentType = "image/png";
+                        break;
+                    case "jpg":
+                    case "jpeg":
+                        contentType = "image/jpeg";
+                        break;
+                    case "gif":
+                        contentType = "image/gif";
+                        break;
+                    case "svg":
+                        contentType = "image/svg+xml";
+                        break;
+                    default:
+                        contentType = "application/octet-stream";
+                }
+
+                if (contentType.startsWith("image/")) {
+                    const blob = new Blob(
+                        [
+                            Uint8Array.from(atob(fileData.content), (c) =>
+                                c.charCodeAt(0),
+                            ),
+                        ],
+                        { type: contentType },
+                    );
+                    const objectURL = URL.createObjectURL(blob);
+                    return new Response(blob, {
+                        headers: {
+                            "Content-Type": contentType,
+                        },
+                    });
+                } else if (fileExtension === "pdf") {
+                    const blob = new Blob(
+                        [
+                            Uint8Array.from(atob(fileData.content), (c) =>
+                                c.charCodeAt(0),
+                            ),
+                        ],
+                        { type: "application/pdf" },
+                    );
+                    return new Response(blob, {
+                        headers: {
+                            "Content-Type": "application/pdf",
+                        },
+                    });
+                } else {
+                    return new Response(content, {
+                        headers: {
+                            "Content-Type": contentType,
+                        },
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching file data:", error);
+        }
+    }
+
+    formatMarkdown(markdown) {
+        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
+        const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
+
+        const findFilePathInTree = (filename, tree) => {
+            const stack = [...tree];
+
+            while (stack.length) {
+                const node = stack.pop();
+
+                if (!node.children) {
+                    // Check if it's a file and matches the filename
+                    const nodeName = node.name.endsWith(".md")
+                        ? node.name.slice(0, -3)
+                        : node.name;
+                    if (nodeName === filename) {
+                        return node; // Return the node containing the path and URL
+                    }
+                } else {
+                    // Add children to stack for further search
+                    stack.push(...node.children);
+                }
+            }
+
+            return null; // Not found
+        };
+
+        const replaceWikilinks = (match, content) => {
+            if (content.startsWith("#")) {
+                // Handle heading links
+                const heading = content.slice(1).trim();
+                return `[${heading}](#${encodeURIComponent(heading)})`;
+            } else {
+                // Handle file links
+                const filename = content.trim();
+
+                const fileNode: any = findFilePathInTree(filename, this.tree);
+
+                if (fileNode) {
+                    const url = `/app/?repo=${fixForURL(this.repo)}&view=${fixForURL(fileNode.url)}&path=${fixForURL(fileNode.path)}`;
+                    return `[${filename}](${url})`;
+                } else {
+                    return `[${filename}](#file-not-found)`; // Fallback if file isn't found
+                }
+            }
+        };
+
+        // Replace smiles code blocks first
+        let processedMarkdown = markdown.replace(
+            smilesCodeBlockRegex,
+            (match, smilesContent) => {
+                const trimmedSmiles = smilesContent.trim();
+                return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
+            },
+        );
+
+        // Replace wikilinks
+        processedMarkdown = processedMarkdown.replace(
+            wikilinkRegex,
+            replaceWikilinks,
+        );
+
+        return processedMarkdown;
+    }
+
+    async fetchAndBuildTree() {
+        const [owner, repoName] = this.repo.split("/").slice(-2);
+        let tree = await fetchRepoTree(owner, repoName);
+
+        tree = tree.filter((f) => !f.path.startsWith("."));
+        return this.buildNestedTree(tree);
+    }
+
+    buildNestedTree(tree) {
+        const root = [];
+
+        const findOrCreateFolder = (level, name, path, url = null) => {
+            let folder = level.find(
+                (item) => item.name === name && item.children,
+            );
+            if (!folder) {
+                folder = { name, path, children: [], url };
+                level.push(folder);
+            }
+            return folder;
+        };
+
+        const addFile = (level, name, path, url) => {
+            level.push({ name, path, url });
+        };
+
+        tree.forEach((node) => {
+            const parts = node.path.split("/");
+            let currentLevel = root;
+            let currentPath = "";
+
+            parts.forEach((part, index) => {
+                const isLastPart = index === parts.length - 1;
+                currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+                if (isLastPart) {
+                    node.mode === "040000"
+                        ? findOrCreateFolder(
+                              currentLevel,
+                              part,
+                              currentPath,
+                              node.url,
+                          )
+                        : addFile(currentLevel, part, currentPath, node.url);
+                } else {
+                    currentLevel = findOrCreateFolder(
+                        currentLevel,
+                        part,
+                        currentPath,
+                    ).children;
+                }
+            });
+        });
+
+        return root;
+    }
+
+    buildTreeHtml(tree, openPath = "") {
+        const buildNode = (node, currentPath) => {
+            const isOpen = openPath && openPath.startsWith(currentPath);
+            if (node.children) {
+                return `
+                    <div class="folder ${isOpen ? "open" : ""}">
+                        <button class="toggle">${node.name}</button>
+                        <div class="nested">
+                            ${node.children
+                                .map((child) =>
+                                    buildNode(
+                                        child,
+                                        `${currentPath}/${child.name}`,
+                                    ),
+                                )
+                                .join("")}
+                        </div>
+                    </div>
+                `;
+            }
+            return `
+                <div class="file">
+                    <a href="/app/?repo=${fixForURL(this.repo)}&path=${fixForURL(node.path)}&view=${fixForURL(node.url)}">${node.name}</a>
+                </div>
+            `;
+        };
+
+        return `<ul class="tree">${tree.map((node) => buildNode(node, node.path)).join("")}</ul>`;
+    }
+}
+
+// Initialize Repository Viewer
+const viewer = new RepositoryViewer(Astro.url);
+const res = await viewer.initialize();
+if (res) {
+    return res;
+}
+
+// Render HTML
+const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
+---
+
+<Layout title={viewer.displayName}>
+    <div id="sidebar">
+        <h2>Files</h2>
+        <div id="file-tree" set:html={treeHtml} />
+    </div>
+    <main class="container">
+        <h1>{viewer.displayName}</h1>
+        <hr />
+        <div set:html={marked(viewer.displayData)} />
+    </main>
+
+    <script is:inline>
+        document.addEventListener("DOMContentLoaded", () => {
+            const folders = document.querySelectorAll(".folder > .toggle");
+            folders.forEach((button) => {
+                button.addEventListener("click", () => {
+                    const parent = button.parentElement;
+                    parent.classList.toggle("open");
+                });
+            });
+        });
+    </script>
+    <script is:inline>
+        MathJax = {
+            tex: {
+                inlineMath: [["$", "$"]],
+            },
+        };
+    </script>
+    <script
+        id="MathJax-script"
+        async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+        is:inline></script>
+    <script
+        type="text/javascript"
+        src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js"
+        is:inline></script>
+    <script is:inline>
+        SmiDrawer.apply();
+    </script>
+</Layout>
+
+<style is:global>
+    .tree {
+        list-style: none;
+        padding-left: 1rem;
+    }
+
+    .folder {
+        padding: 3px;
+    }
+
+    .folder > button {
+        background: none;
+        border: none;
+        cursor: pointer;
+    }
+
+    .nested {
+        display: none;
+        padding-left: 1rem;
+        border-left: 1px solid;
+    }
+
+    .folder.open > .nested {
+        display: block;
+    }
+
+    body {
+        display: flex;
+        flex-direction: row;
+    }
+
+    button {
+        all: unset;
+    }
+
+    #sidebar {
+        margin: 15px;
+        max-width: 20%;
+    }
+
+    @media print {
+        #sidebar {
+            display: none;
+        }
+    }
+
+    @media screen and (max-width: 800px) {
+        body {
+            flex-direction: column-reverse;
+        }
+    }
+
+    svg {
+        max-height: 8em;
+        max-width: 400px;
+        filter: invert(1);
+    }
+
+    .container {
+        flex: 1;
+        padding: 2rem;
+        margin: unset;
+    }
+</style>
+
+<script>
+    // If user clicks on a element, check the hash
+    document.addEventListener("click", (event) => {
+        const target = event.target;
+        //@ts-ignore
+        if (target.tagName === "A") {
+            //@ts-ignore
+            const hash = target.hash;
+            if (hash) {
+                const element = document.querySelector(hash);
+                if (element) {
+                    element.scrollIntoView();
+                    event.preventDefault();
+                } else if (hash === "#file-not-found") {
+                    var main = document.querySelector("main");
+                    if (main) {
+                        main.innerHTML = "<h1>File not found</h1>";
+                    }
+                    location.hash = "";
+                }
+            }
+        }
+    });
+
+    // Add id to all headings
+    document.addEventListener("DOMContentLoaded", () => {
+        const headings = document.querySelectorAll("h1, h2, h3, h4, h5, h6");
+        headings.forEach((heading) => { //@ts-ignore
+            const id = encodeURIComponent(heading.textContent);
+            heading.id = id;
+        });
+    });
+</script>
