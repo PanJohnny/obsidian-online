@@ -29,6 +29,6 @@ const text = Astro.url.searchParams.get("repo").split("/").slice(-2).join("/");
 
 <script define:vars={{repo: repo}}>
     setTimeout(() => {
-        window.location.href = `/browse?repo=${repo}`;
+        window.location.href = `/app/?repo=${repo}`;
     }, 1000);
 </script>

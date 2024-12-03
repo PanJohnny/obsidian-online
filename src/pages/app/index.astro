@@ -2,130 +2,267 @@
 import Layout from "../../layouts/Layout.astro";
 import { fixForURL, fixForURLDecode } from "../../lib/string-utils";
 import { fetchRepoTree, fetchFile } from "../../lib/github-utils";
-import {marked} from "marked";
+import { marked } from "marked";
 
-const repo = Astro.url.searchParams.get("repo");
-const view = fixForURLDecode(Astro.url.searchParams.get("view"));
+// Utility Class to handle the repository and file operations
+class RepositoryViewer {
+    url;
+    repo;
+    view;
+    path;
+    displayData;
+    displayName;
+    isMarkdown;
+    tree;
 
-let displayData = "";
-function replaceSmilesCodeBlocks(markdown) {
-    // Regular expression to match code blocks with language 'smiles'
-    const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
+    constructor(url) {
+        this.url = url;
+        this.repo = url.searchParams.get("repo");
+        this.view = url.searchParams.get("view");
+        this.path = url.searchParams.get("path");
+        this.displayData = "";
+        this.displayName = "";
+        this.isMarkdown = false;
+        this.tree = [];
+    }
 
-    // Replace each matched code block with the <svg> element
-    return markdown.replace(smilesCodeBlockRegex, (match, smilesContent) => {
-        // Trim the SMILES content to remove any extra whitespace or line breaks
-        const trimmedSmiles = smilesContent.trim();
-        return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
-    });
-}
-if (view) {
-    try {
-        const fileData = await fetchFile(view);
-        const content = atob(fileData.content);
-        let text = new TextDecoder("utf-8").decode(Uint8Array.from(atob(content), c => c.charCodeAt(0)));
-        const isMarkdown = fileData.path.endsWith(".md");
-
-        if (isMarkdown) {
-            displayData = replaceSmilesCodeBlocks(text);
+    async initialize() {
+        try {
+            await this.fetchFileData();
+            this.tree = await this.fetchAndBuildTree();
+        } catch (error) {
+            console.error("Initialization error:", error);
         }
-    } catch (err) {
-        // Nothing
-        console.error(err)
-    }
-}
-
-const [owner, repoName] = repo.split("/").slice(-2);
-
-let tree = await fetchRepoTree(owner, repoName);
-// Filter out hidden files and folders (starting with .)
-tree = tree.filter(f => !f.path.startsWith("."));
-
-// If the mode is 040000, it is a folder. Folders should be collapsable.
-function buildNestedTree(tree) {
-    const root = [];
-
-    // Helper function to find or create a folder in the current level
-    function findOrCreateFolder(level, name, url = null) {
-        let folder = level.find(item => item.name === name && item.children);
-        if (!folder) {
-            folder = { name, children: [], url };
-            level.push(folder);
-        }
-        return folder;
     }
 
-    // Helper function to add files
-    function addFile(level, name, url) {
-        level.push({ name, url });
-    }
+    async fetchFileData() {
+        if (!this.view) return;
 
-    tree.forEach(node => {
-        const parts = node.path.split('/');
-        let currentLevel = root;
+        try {
+            this.view = fixForURLDecode(this.view);
+            const fileData = await fetchFile(this.view);
+            const content = atob(fileData.content);
+            this.displayData = new TextDecoder("utf-8").decode(
+                Uint8Array.from(content, (c) => c.charCodeAt(0)),
+            );
 
-        parts.forEach((part, index) => {
-            const isLastPart = index === parts.length - 1;
+            this.path = this.path ? fixForURLDecode(this.path) : "";
+            this.displayName = this.path.split("/").pop();
+            this.isMarkdown = this.path.endsWith(".md");
 
-            if (isLastPart) {
-                if (node.mode === "040000") {
-                    // Folder
-                    findOrCreateFolder(currentLevel, part, node.url);
-                } else {
-                    // File
-                    addFile(currentLevel, part, node.url);
-                }
-            } else {
-                currentLevel = findOrCreateFolder(currentLevel, part).children;
+            if (this.isMarkdown) {
+                this.displayData = this.formatMarkdown(
+                    this.displayData,
+                    this.tree,
+                    this.repo,
+                );
+                this.displayName = this.displayName.replace(".md", "");
             }
-        });
-    });
+        } catch (error) {
+            console.error("Error fetching file data:", error);
+        }
+    }
 
-    return root;
+    formatMarkdown(markdown, tree, repo) {
+        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
+        const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
+
+        const findFilePathInTree = (filename, tree) => {
+            const searchTree = (node, path) => {
+                if (node.name === filename) {
+                    return path;
+                }
+                if (node.children) {
+                    for (const child of node.children) {
+                        const result = searchTree(
+                            child,
+                            `${path}/${child.name}`,
+                        );
+                        if (result) {
+                            return result;
+                        }
+                    }
+                }
+                return null;
+            };
+
+            return searchTree(tree, tree.name);
+        };
+
+        const replaceWikilinks = (match, content) => {
+            if (content.startsWith("#")) {
+                // Handle heading links
+                const heading = content.slice(1).trim();
+                return `[${heading}](#${heading})`;
+            } else {
+                // Handle file links
+                const filename = content.trim();
+                const fileNode = findFilePathInTree(filename, tree);
+
+                if (fileNode) {
+                    const url = `/app/?repo=${fixForURL(repo)}&view=${fixForURL(fileNode.url)}&path=${fixForURL(fileNode.path)}`;
+                    return `[${filename}](${url})`;
+                } else {
+                    return `[${filename}](#file-not-found)`; // Fallback if file isn't found
+                }
+            }
+        };
+
+        // Replace smiles code blocks first
+        let processedMarkdown = markdown.replace(
+            smilesCodeBlockRegex,
+            (match, smilesContent) => {
+                const trimmedSmiles = smilesContent.trim();
+                return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
+            },
+        );
+
+        // Replace wikilinks
+        processedMarkdown = processedMarkdown.replace(
+            wikilinkRegex,
+            replaceWikilinks,
+        );
+
+        return processedMarkdown;
+    }
+
+    async fetchAndBuildTree() {
+        const [owner, repoName] = this.repo.split("/").slice(-2);
+        let tree = await fetchRepoTree(owner, repoName);
+
+        tree = tree.filter((f) => !f.path.startsWith("."));
+        return this.buildNestedTree(tree);
+    }
+
+    buildNestedTree(tree) {
+        const root = [];
+
+        const findOrCreateFolder = (level, name, path, url = null) => {
+            let folder = level.find(
+                (item) => item.name === name && item.children,
+            );
+            if (!folder) {
+                folder = { name, path, children: [], url };
+                level.push(folder);
+            }
+            return folder;
+        };
+
+        const addFile = (level, name, path, url) => {
+            level.push({ name, path, url });
+        };
+
+        tree.forEach((node) => {
+            const parts = node.path.split("/");
+            let currentLevel = root;
+            let currentPath = "";
+
+            parts.forEach((part, index) => {
+                const isLastPart = index === parts.length - 1;
+                currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+                if (isLastPart) {
+                    node.mode === "040000"
+                        ? findOrCreateFolder(
+                              currentLevel,
+                              part,
+                              currentPath,
+                              node.url,
+                          )
+                        : addFile(currentLevel, part, currentPath, node.url);
+                } else {
+                    currentLevel = findOrCreateFolder(
+                        currentLevel,
+                        part,
+                        currentPath,
+                    ).children;
+                }
+            });
+        });
+
+        return root;
+    }
+
+    buildTreeHtml(tree, openPath = "") {
+        const buildNode = (node, currentPath) => {
+            const isOpen = openPath && openPath.startsWith(currentPath);
+            if (node.children) {
+                return `
+                    <div class="folder ${isOpen ? "open" : ""}">
+                        <button class="toggle">${node.name}</button>
+                        <div class="nested">
+                            ${node.children
+                                .map((child) =>
+                                    buildNode(
+                                        child,
+                                        `${currentPath}/${child.name}`,
+                                    ),
+                                )
+                                .join("")}
+                        </div>
+                    </div>
+                `;
+            }
+            return `
+                <div class="file">
+                    <a href="/app/?repo=${fixForURL(this.repo)}&path=${fixForURL(node.path)}&view=${fixForURL(node.url)}">${node.name}</a>
+                </div>
+            `;
+        };
+
+        return `<ul class="tree">${tree.map((node) => buildNode(node, node.path)).join("")}</ul>`;
+    }
 }
 
-tree = buildNestedTree(tree);
+// Initialize Repository Viewer
+const viewer = new RepositoryViewer(Astro.url);
+await viewer.initialize();
 
-const buildTreeHtml = (tree) => {
-    const buildNode = (node) => {
-        if (node.children) {
-            // Folder
-            return `
-        <div class="folder">
-          <button class="toggle">${node.name}</button>
-          <div class="nested">
-            ${node.children.map(buildNode).join('')}
-          </div>
-        </div>
-      `;
-        }
-        // File
-        return `
-      <div class="file">
-        <a href="/app/?repo=${fixForURL(repo)}&view=${fixForURL(node.url)}">${node.name}</a>
-      </div>
-    `;
-    };
-
-    return `
-    <ul class="tree">
-      ${tree.map(buildNode).join('')}
-    </ul>
-  `;
-};
-
-// Pass the `tree` prop into the component
-const treeHtml = buildTreeHtml(tree);
+// Render HTML
+const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 ---
 
-<Layout title="Repository Files">
+<Layout title={viewer.displayName}>
     <div id="sidebar">
-        <h2>Soubory</h2>
-        <div id="file-tree" set:html={treeHtml}></div>
+        <h2>Files</h2>
+        <div id="file-tree" set:html={treeHtml} />
     </div>
     <main class="container">
-        <div set:html={marked(displayData)} />
+        <h1>{viewer.displayName}</h1>
+        <hr />
+        <div set:html={marked(viewer.displayData)} />
     </main>
+
+    <script is:inline>
+        document.addEventListener("DOMContentLoaded", () => {
+            const folders = document.querySelectorAll(".folder > .toggle");
+            folders.forEach((button) => {
+                button.addEventListener("click", () => {
+                    const parent = button.parentElement;
+                    parent.classList.toggle("open");
+                });
+            });
+        });
+    </script>
+    <script is:inline>
+        MathJax = {
+            tex: {
+                inlineMath: [["$", "$"]],
+            },
+        };
+    </script>
+    <script
+        id="MathJax-script"
+        async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+        is:inline></script>
+    <script
+        type="text/javascript"
+        src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js"
+        is:inline></script>
+    <script is:inline>
+        SmiDrawer.apply();
+    </script>
 </Layout>
 
 <style is:global>
@@ -158,17 +295,51 @@ const treeHtml = buildTreeHtml(tree);
     button {
         all: unset;
     }
+
+    #sidebar {
+        margin: 15px;
+    }
+
+    @media print {
+        #sidebar {
+            display: none;
+        }
+    }
+
+    @media screen and (max-width: 800px) {
+        body {
+            flex-direction: column-reverse;
+        }
+    }
+
+    svg {
+        max-height: 8em;
+        max-width: 400px;
+        filter: invert(1);
+    }
 </style>
 
-
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const folders = document.querySelectorAll('.folder > .toggle');
-        folders.forEach(button => {
-            button.addEventListener('click', () => {
-                const parent = button.parentElement;
-                parent.classList.toggle('open');
-            });
-        });
+    // If user clicks on a element, check the hash
+    document.addEventListener("click", (event) => {
+        const target = event.target;
+        //@ts-ignore
+        if (target.tagName === "A") {
+            //@ts-ignore
+            const hash = target.hash;
+            if (hash) {
+                const element = document.querySelector(hash);
+                if (element) {
+                    element.scrollIntoView();
+                    event.preventDefault();
+                } else if (hash === "#file-not-found") {
+                    var main = document.querySelector("main");
+                    if (main) {
+                        main.innerHTML = "<h1>File not found</h1>";
+                    }
+                    location.hash = "";
+                }
+            }
+        }
     });
 </script>
