@@ -4,7 +4,10 @@ import { fixForURL, fixForURLDecode } from "../lib/string-utils";
 import { fetchData } from "../lib/github-utils";
 
 const repo = Astro.url.searchParams.get("repo");
-const path = fixForURLDecode(Astro.url.searchParams.get("file"));
+let path = fixForURLDecode(Astro.url.searchParams.get("file"));
+if (!path || path.trim().length === 0) {
+    path = "";
+}
 const [owner, repoName] = repo.split("/").slice(-2);
 
 let files = await fetchData(owner, repoName, path || "");

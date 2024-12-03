@@ -17,18 +17,79 @@ const isMarkdown = file.endsWith(".md");
 const folder = file.split("/").slice(0, -1).join("/");
 
 let filesInFolder = await fetchData(owner, repoName, folder);
-// Find all [[wikilinks]] in the text and transform them into links, needs to look throught the text and then call the transformer on each file separately
-// const wikilinks = text.match(/\[\[([^\]]+)\]\]/g);
-// if (wikilinks) {
-//     for (const link of wikilinks) {
-//         const file = link.slice(2, -2);
-//         const transformed = pathTransformer(file, folder);
-//         text = text.replace(link, `[link](${transformed})`);
-//     }
-// }
+
+if (!isMarkdown ) {
+  const fileExtension = file.split('.').pop();
+  let contentType;
+
+  switch (fileExtension) {
+    case 'html':
+      contentType = 'text/html';
+      break;
+    case 'css':
+      contentType = 'text/css';
+      break;
+    case 'js':
+      contentType = 'application/javascript';
+      break;
+    case 'json':
+      contentType = 'application/json';
+      break;
+    case 'txt':
+      contentType = 'text/plain';
+      break;
+    case 'png':
+      contentType = 'image/png';
+      break;
+    case 'jpg':
+    case 'jpeg':
+      contentType = 'image/jpeg';
+      break;
+    case 'gif':
+      contentType = 'image/gif';
+      break;
+    case 'svg':
+      contentType = 'image/svg+xml';
+      break;
+    default:
+      contentType = 'application/octet-stream';
+  }
+
+  if (contentType.startsWith('image/')) {
+    const blob = new Blob([Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0))], { type: contentType });
+    const objectURL = URL.createObjectURL(blob);
+    return new Response(blob, {
+      headers: {
+      'Content-Type': contentType
+      }
+    });
+  } else {
+    return new Response(content, {
+      headers: {
+        'Content-Type': contentType
+      }
+    });
+  }
+}
 
 const parentPath = folder ? folder.split("/").slice(0, -1).join("/") : "";
 filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
+
+function replaceSmilesCodeBlocks(markdown) {
+  // Regular expression to match code blocks with language 'smiles'
+  const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
+  
+  // Replace each matched code block with the <svg> element
+  return markdown.replace(smilesCodeBlockRegex, (match, smilesContent) => {
+    // Trim the SMILES content to remove any extra whitespace or line breaks
+    const trimmedSmiles = smilesContent.trim();
+    return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
+  });
+}
+
+text = replaceSmilesCodeBlocks(text);
+
+const fileName = file.split("/").pop().split(".")[0];
 ---
 
 <Layout title="Viewing File">
@@ -45,10 +106,22 @@ filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
             </ul>
         </aside>
         <section class="file-content">
-            <h1>{file}</h1>
+            <h1>{fileName}</h1>
             {isMarkdown ? <div set:html={marked(text)} /> : <pre>{content}</pre>}
         </section>
     </main>
+<script is:inline>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$']]
+  }
+};
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" is:inline></script>
+<script type="text/javascript" src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js" is:inline></script>
+    <script is:inline>
+        SmiDrawer.apply();
+    </script>
 </Layout>
 
 <style>
@@ -66,14 +139,29 @@ filesInFolder = filesInFolder.filter(file => !file.name.startsWith("."));
     flex: 1;
     }
 
-a {
+.sidebar a {
     text-decoration: none;
     color: #4f39fa;
     }
 
-a:hover {
+.sidebar a:hover {
     text-decoration: underline;
     }
-</style>
 
-<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+:global(svg) {
+    max-height: 8em;
+    max-width: 400px;
+}
+
+@media only screen and (max-width: 500px) {
+    .container {
+        flex-direction: column-reverse;
+    }
+}
+
+@media print {
+    .sidebar {
+        display: none;
+    }
+}
+</style>
