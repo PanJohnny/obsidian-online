@@ -28,8 +28,11 @@ class RepositoryViewer {
 
     async initialize() {
         try {
-            await this.fetchFileData();
             this.tree = await this.fetchAndBuildTree();
+            const res = await this.fetchFileData();
+            if (res) {
+                return res;
+            }
         } catch (error) {
             console.error("Initialization error:", error);
         }
@@ -51,56 +54,113 @@ class RepositoryViewer {
             this.isMarkdown = this.path.endsWith(".md");
 
             if (this.isMarkdown) {
-                this.displayData = this.formatMarkdown(
-                    this.displayData,
-                    this.tree,
-                    this.repo,
-                );
+                this.displayData = this.formatMarkdown(this.displayData);
                 this.displayName = this.displayName.replace(".md", "");
+            } else {
+                const fileExtension = this.path.split(".").pop();
+                let contentType;
+
+                switch (fileExtension) {
+                    case "html":
+                        contentType = "text/html";
+                        break;
+                    case "css":
+                        contentType = "text/css";
+                        break;
+                    case "js":
+                        contentType = "application/javascript";
+                        break;
+                    case "json":
+                        contentType = "application/json";
+                        break;
+                    case "txt":
+                        contentType = "text/plain";
+                        break;
+                    case "png":
+                        contentType = "image/png";
+                        break;
+                    case "jpg":
+                    case "jpeg":
+                        contentType = "image/jpeg";
+                        break;
+                    case "gif":
+                        contentType = "image/gif";
+                        break;
+                    case "svg":
+                        contentType = "image/svg+xml";
+                        break;
+                    default:
+                        contentType = "application/octet-stream";
+                }
+
+                if (contentType.startsWith("image/")) {
+                    const blob = new Blob(
+                        [
+                            Uint8Array.from(atob(fileData.content), (c) =>
+                                c.charCodeAt(0),
+                            ),
+                        ],
+                        { type: contentType },
+                    );
+                    const objectURL = URL.createObjectURL(blob);
+                    return new Response(blob, {
+                        headers: {
+                            "Content-Type": contentType,
+                        },
+                    });
+                } else {
+                    return new Response(content, {
+                        headers: {
+                            "Content-Type": contentType,
+                        },
+                    });
+                }
             }
         } catch (error) {
             console.error("Error fetching file data:", error);
         }
     }
 
-    formatMarkdown(markdown, tree, repo) {
+    formatMarkdown(markdown) {
         const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
         const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
 
         const findFilePathInTree = (filename, tree) => {
-            const searchTree = (node, path) => {
-                if (node.name === filename) {
-                    return path;
-                }
-                if (node.children) {
-                    for (const child of node.children) {
-                        const result = searchTree(
-                            child,
-                            `${path}/${child.name}`,
-                        );
-                        if (result) {
-                            return result;
-                        }
-                    }
-                }
-                return null;
-            };
+            const stack = [...tree];
 
-            return searchTree(tree, tree.name);
+            while (stack.length) {
+                const node = stack.pop();
+
+                if (!node.children) {
+                    // Check if it's a file and matches the filename
+                    const nodeName = node.name.endsWith(".md")
+                        ? node.name.slice(0, -3)
+                        : node.name;
+                    if (nodeName === filename) {
+                        return node; // Return the node containing the path and URL
+                    }
+                } else {
+                    // Add children to stack for further search
+                    stack.push(...node.children);
+                }
+            }
+
+            return null; // Not found
         };
 
         const replaceWikilinks = (match, content) => {
             if (content.startsWith("#")) {
                 // Handle heading links
                 const heading = content.slice(1).trim();
-                return `[${heading}](#${heading})`;
+                return `[${heading}](#${encodeURIComponent(heading)})`;
             } else {
                 // Handle file links
                 const filename = content.trim();
-                const fileNode = findFilePathInTree(filename, tree);
+
+                const fileNode: any = findFilePathInTree(filename, this.tree);
 
                 if (fileNode) {
-                    const url = `/app/?repo=${fixForURL(repo)}&view=${fixForURL(fileNode.url)}&path=${fixForURL(fileNode.path)}`;
+                    const url = `/app/?repo=${fixForURL(this.repo)}&view=${fixForURL(fileNode.url)}&path=${fixForURL(fileNode.path)}`;
                     return `[${filename}](${url})`;
                 } else {
                     return `[${filename}](#file-not-found)`; // Fallback if file isn't found
@@ -216,7 +276,10 @@ class RepositoryViewer {
 
 // Initialize Repository Viewer
 const viewer = new RepositoryViewer(Astro.url);
-await viewer.initialize();
+const res = await viewer.initialize();
+if (res) {
+    return res;
+}
 
 // Render HTML
 const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
@@ -341,5 +404,14 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
                 }
             }
         }
+    });
+
+    // Add id to all headings
+    document.addEventListener("DOMContentLoaded", () => {
+        const headings = document.querySelectorAll("h1, h2, h3, h4, h5, h6");
+        headings.forEach((heading) => { //@ts-ignore
+            const id = encodeURIComponent(heading.textContent);
+            heading.id = id;
+        });
     });
 </script>
