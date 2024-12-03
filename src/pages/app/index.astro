@@ -1,0 +1,174 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { fixForURL, fixForURLDecode } from "../../lib/string-utils";
+import { fetchRepoTree, fetchFile } from "../../lib/github-utils";
+import {marked} from "marked";
+
+const repo = Astro.url.searchParams.get("repo");
+const view = fixForURLDecode(Astro.url.searchParams.get("view"));
+
+let displayData = "";
+function replaceSmilesCodeBlocks(markdown) {
+    // Regular expression to match code blocks with language 'smiles'
+    const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
+
+    // Replace each matched code block with the <svg> element
+    return markdown.replace(smilesCodeBlockRegex, (match, smilesContent) => {
+        // Trim the SMILES content to remove any extra whitespace or line breaks
+        const trimmedSmiles = smilesContent.trim();
+        return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
+    });
+}
+if (view) {
+    try {
+        const fileData = await fetchFile(view);
+        const content = atob(fileData.content);
+        let text = new TextDecoder("utf-8").decode(Uint8Array.from(atob(content), c => c.charCodeAt(0)));
+        const isMarkdown = fileData.path.endsWith(".md");
+
+        if (isMarkdown) {
+            displayData = replaceSmilesCodeBlocks(text);
+        }
+    } catch (err) {
+        // Nothing
+        console.error(err)
+    }
+}
+
+const [owner, repoName] = repo.split("/").slice(-2);
+
+let tree = await fetchRepoTree(owner, repoName);
+// Filter out hidden files and folders (starting with .)
+tree = tree.filter(f => !f.path.startsWith("."));
+
+// If the mode is 040000, it is a folder. Folders should be collapsable.
+function buildNestedTree(tree) {
+    const root = [];
+
+    // Helper function to find or create a folder in the current level
+    function findOrCreateFolder(level, name, url = null) {
+        let folder = level.find(item => item.name === name && item.children);
+        if (!folder) {
+            folder = { name, children: [], url };
+            level.push(folder);
+        }
+        return folder;
+    }
+
+    // Helper function to add files
+    function addFile(level, name, url) {
+        level.push({ name, url });
+    }
+
+    tree.forEach(node => {
+        const parts = node.path.split('/');
+        let currentLevel = root;
+
+        parts.forEach((part, index) => {
+            const isLastPart = index === parts.length - 1;
+
+            if (isLastPart) {
+                if (node.mode === "040000") {
+                    // Folder
+                    findOrCreateFolder(currentLevel, part, node.url);
+                } else {
+                    // File
+                    addFile(currentLevel, part, node.url);
+                }
+            } else {
+                currentLevel = findOrCreateFolder(currentLevel, part).children;
+            }
+        });
+    });
+
+    return root;
+}
+
+tree = buildNestedTree(tree);
+
+const buildTreeHtml = (tree) => {
+    const buildNode = (node) => {
+        if (node.children) {
+            // Folder
+            return `
+        <div class="folder">
+          <button class="toggle">${node.name}</button>
+          <div class="nested">
+            ${node.children.map(buildNode).join('')}
+          </div>
+        </div>
+      `;
+        }
+        // File
+        return `
+      <div class="file">
+        <a href="/app/?repo=${fixForURL(repo)}&view=${fixForURL(node.url)}">${node.name}</a>
+      </div>
+    `;
+    };
+
+    return `
+    <ul class="tree">
+      ${tree.map(buildNode).join('')}
+    </ul>
+  `;
+};
+
+// Pass the `tree` prop into the component
+const treeHtml = buildTreeHtml(tree);
+---
+
+<Layout title="Repository Files">
+    <div id="sidebar">
+        <h2>Soubory</h2>
+        <div id="file-tree" set:html={treeHtml}></div>
+    </div>
+    <main class="container">
+        <div set:html={marked(displayData)} />
+    </main>
+</Layout>
+
+<style is:global>
+    .tree {
+        list-style: none;
+        padding-left: 1rem;
+    }
+
+    .folder > button {
+        background: none;
+        border: none;
+        cursor: pointer;
+    }
+
+    .nested {
+        display: none;
+        padding-left: 1rem;
+        border-left: 1px solid;
+    }
+
+    .folder.open > .nested {
+        display: block;
+    }
+
+    body {
+        display: flex;
+        flex-direction: row;
+    }
+
+    button {
+        all: unset;
+    }
+</style>
+
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const folders = document.querySelectorAll('.folder > .toggle');
+        folders.forEach(button => {
+            button.addEventListener('click', () => {
+                const parent = button.parentElement;
+                parent.classList.toggle('open');
+            });
+        });
+    });
+</script>
