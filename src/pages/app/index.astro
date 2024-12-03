@@ -108,6 +108,20 @@ class RepositoryViewer {
                             "Content-Type": contentType,
                         },
                     });
+                } else if (fileExtension === "pdf") {
+                    const blob = new Blob(
+                        [
+                            Uint8Array.from(atob(fileData.content), (c) =>
+                                c.charCodeAt(0),
+                            ),
+                        ],
+                        { type: "application/pdf" },
+                    );
+                    return new Response(blob, {
+                        headers: {
+                            "Content-Type": "application/pdf",
+                        },
+                    });
                 } else {
                     return new Response(content, {
                         headers: {
@@ -334,6 +348,10 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         padding-left: 1rem;
     }
 
+    .folder {
+        padding: 3px;
+    }
+
     .folder > button {
         background: none;
         border: none;
@@ -361,6 +379,7 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 
     #sidebar {
         margin: 15px;
+        max-width: 20%;
     }
 
     @media print {
@@ -379,6 +398,12 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         max-height: 8em;
         max-width: 400px;
         filter: invert(1);
+    }
+
+    .container {
+        flex: 1;
+        padding: 2rem;
+        margin: unset;
     }
 </style>
 
