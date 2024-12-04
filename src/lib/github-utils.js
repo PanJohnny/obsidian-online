@@ -12,7 +12,7 @@ export function fetchData(user, repo, path = "") {
     .then(response => response.json())
     .then(data => {
         if (data.message) {
-            throw new Error(data.message);
+            throw new Error(JSON.stringify(data));
         }
         return data;
     });
@@ -40,7 +40,7 @@ export function fetchRepoTree(user, repo) {
     .then(response => response.json())
     .then(data => {
         if (data.message) {
-            throw new Error(data.message);
+            throw new Error(JSON.stringify(data));
         }
         return data.tree;
     });
