@@ -1,8 +1,8 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import { fixForURL, fixForURLDecode } from "../../lib/string-utils";
-import { fetchRepoTree, fetchFile } from "../../lib/github-utils";
-import { marked } from "marked";
+import {fixForURL, fixForURLDecode} from "../../lib/string-utils";
+import {fetchRepoTree, fetchFile} from "../../lib/github-utils";
+import {marked} from "marked";
 
 // Utility Class to handle the repository and file operations
 class RepositoryViewer {
@@ -100,9 +100,8 @@ class RepositoryViewer {
                                 c.charCodeAt(0),
                             ),
                         ],
-                        { type: contentType },
+                        {type: contentType},
                     );
-                    const objectURL = URL.createObjectURL(blob);
                     return new Response(blob, {
                         headers: {
                             "Content-Type": contentType,
@@ -115,7 +114,7 @@ class RepositoryViewer {
                                 c.charCodeAt(0),
                             ),
                         ],
-                        { type: "application/pdf" },
+                        {type: "application/pdf"},
                     );
                     return new Response(blob, {
                         headers: {
@@ -136,8 +135,8 @@ class RepositoryViewer {
     }
 
     formatMarkdown(markdown) {
-        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/g;
-        const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
+        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/gm;
+        const wikilinkRegex = /\[\[([^\]]+)]]/g;
 
         const findFilePathInTree = (filename, tree) => {
             const stack = [...tree];
@@ -216,14 +215,14 @@ class RepositoryViewer {
                 (item) => item.name === name && item.children,
             );
             if (!folder) {
-                folder = { name, path, children: [], url };
+                folder = {name, path, children: [], url};
                 level.push(folder);
             }
             return folder;
         };
 
         const addFile = (level, name, path, url) => {
-            level.push({ name, path, url });
+            level.push({name, path, url});
         };
 
         tree.forEach((node) => {
@@ -238,11 +237,11 @@ class RepositoryViewer {
                 if (isLastPart) {
                     node.mode === "040000"
                         ? findOrCreateFolder(
-                              currentLevel,
-                              part,
-                              currentPath,
-                              node.url,
-                          )
+                            currentLevel,
+                            part,
+                            currentPath,
+                            node.url,
+                        )
                         : addFile(currentLevel, part, currentPath, node.url);
                 } else {
                     currentLevel = findOrCreateFolder(
@@ -266,13 +265,13 @@ class RepositoryViewer {
                         <button class="toggle">${node.name}</button>
                         <div class="nested">
                             ${node.children
-                                .map((child) =>
-                                    buildNode(
-                                        child,
-                                        `${currentPath}/${child.name}`,
-                                    ),
-                                )
-                                .join("")}
+                    .map((child) =>
+                        buildNode(
+                            child,
+                            `${currentPath}/${child.name}`,
+                        ),
+                    )
+                    .join("")}
                         </div>
                     </div>
                 `;
@@ -302,43 +301,20 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 <Layout title={viewer.displayName}>
     <div id="sidebar">
         <h2>Files</h2>
-        <div id="file-tree" set:html={treeHtml} />
+        <div id="file-tree" set:html={treeHtml}/>
     </div>
     <main class="container">
         <h1>{viewer.displayName}</h1>
-        <hr />
-        <div set:html={marked(viewer.displayData)} />
+        <hr/>
+        <div set:html={marked(viewer.displayData)}/>
     </main>
-
-    <script is:inline>
-        document.addEventListener("DOMContentLoaded", () => {
-            const folders = document.querySelectorAll(".folder > .toggle");
-            folders.forEach((button) => {
-                button.addEventListener("click", () => {
-                    const parent = button.parentElement;
-                    parent.classList.toggle("open");
-                });
-            });
-        });
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async/>
     <script is:inline>
         MathJax = {
             tex: {
-                inlineMath: [["$", "$"]],
+                inlineMath: [['$', '$']],
             },
         };
-    </script>
-    <script
-        id="MathJax-script"
-        async
-        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
-        is:inline></script>
-    <script
-        type="text/javascript"
-        src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js"
-        is:inline></script>
-    <script is:inline>
-        SmiDrawer.apply();
     </script>
 </Layout>
 
@@ -379,7 +355,7 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 
     #sidebar {
         margin: 15px;
-        max-width: 20%;
+        max-width: 30%;
     }
 
     @media print {
@@ -400,8 +376,6 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 
     svg {
         max-height: 8em;
-        max-width: 400px;
-        filter: invert(1);
     }
 
     .container {
@@ -409,9 +383,17 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         padding: 2rem;
         margin: unset;
     }
+
+    mjx-container {
+        display: block;
+        overflow: scroll;
+    }
 </style>
 
+
 <script>
+    import {SmiDrawer} from "smiles-drawer";
+
     // If user clicks on a element, check the hash
     document.addEventListener("click", (event) => {
         const target = event.target;
@@ -439,8 +421,19 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
     document.addEventListener("DOMContentLoaded", () => {
         const headings = document.querySelectorAll("h1, h2, h3, h4, h5, h6");
         headings.forEach((heading) => { //@ts-ignore
-            const id = encodeURIComponent(heading.textContent);
-            heading.id = id;
+            heading.id = encodeURIComponent(heading.textContent);
+        });
+
+        const folders = document.querySelectorAll(".folder > .toggle");
+        folders.forEach((button) => {
+            button.addEventListener("click", () => {
+                const parent = button.parentElement;
+                parent.classList.toggle("open");
+            });
         });
     });
+
+    const drawer = new SmiDrawer();
+
+    drawer.apply(undefined, "dark");
 </script>
