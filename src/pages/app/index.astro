@@ -3,6 +3,8 @@ import Layout from "../../layouts/Layout.astro";
 import {fixForURL, fixForURLDecode} from "../../lib/string-utils";
 import {fetchRepoTree, fetchFile} from "../../lib/github-utils";
 import {marked} from "marked";
+import ExcalidrawViewer from "../../components/ExcalidrawViewer";
+import {decompress} from "../../lib/decompressor";
 
 // Utility Class to handle the repository and file operations
 class RepositoryViewer {
@@ -13,6 +15,7 @@ class RepositoryViewer {
     displayData;
     displayName;
     isMarkdown;
+    isExcalidraw;
     tree;
 
     constructor(url) {
@@ -54,8 +57,19 @@ class RepositoryViewer {
             this.isMarkdown = this.path.endsWith(".md");
 
             if (this.isMarkdown) {
-                this.displayData = this.formatMarkdown(this.displayData);
                 this.displayName = this.displayName.replace(".md", "");
+                this.isExcalidraw = this.displayData.includes("excalidraw-plugin: parsed");
+                if (this.isExcalidraw) {
+                    this.isMarkdown = false;
+                    // ```compressed-json parse in code block
+                    const start = this.displayData.indexOf("```compressed-json");
+                    const end = this.displayData.indexOf("```", start + 1);
+                    this.displayData = this.displayData.slice(start + 18, end);
+                    // Decompress the display data to json using lz string
+                    this.displayData = JSON.parse(decompress(this.displayData));
+                    return;
+                }
+                this.displayData = this.formatMarkdown(this.displayData);
             } else {
                 const fileExtension = this.path.split(".").pop();
                 let contentType;
@@ -306,7 +320,7 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
     <main class="container">
         <h1>{viewer.displayName}</h1>
         <hr/>
-        <div set:html={marked(viewer.displayData)}/>
+        {viewer.isMarkdown ? <div set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Funkčnost doposud omezena</p> : <pre>{viewer.displayData}</pre>}
     </main>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async/>
     <script is:inline>
