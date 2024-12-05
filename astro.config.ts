@@ -11,10 +11,4 @@ export default defineConfig({
   }),
 
   integrations: [react()],
-
-  vite: {
-    define: {
-      "process.env": {}
-    }
-  }
 });
