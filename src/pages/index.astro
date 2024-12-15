@@ -15,6 +15,14 @@ export const prerender = true;
 			<input type="url" id="repo" name="repo" placeholder="https://github.com/User/Repository" pattern="https://github\.com/.+/.+" required />
 			<button type="submit">Submit</button>
 		</form>
+		<div class="flex">
+			<a href="/repo?repo=https://github.com/PanJohnny/Notes2024-25" role="button" class="outline">
+				PanJohnny/Notes2024-25
+			</a>
+			<a href="https://github.com/PanJohnny/obsidian-online" role="button" class="outline contrast" target="_blank">
+				Open GitHub
+			</a>
+		</div>
 	</main>
 </Layout>
 
@@ -75,5 +83,19 @@ export const prerender = true;
 		grid-template-columns: repeat(auto-fit, minmax(24ch, 1fr));
 		gap: 1rem;
 		padding: 0;
+	}
+
+	.flex {
+		display: flex;
+		justify-content: space-between;
+		width: 100%;
+	}
+
+	.flex a {
+		flex: 1;
+	}
+
+	.flex a:nth-child(1) {
+		margin-right: 1rem;
 	}
 </style>

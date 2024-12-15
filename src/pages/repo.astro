@@ -2,7 +2,7 @@
 import Layout from "../layouts/Layout.astro";
 const repo = Astro.url.searchParams.get("repo");
 
-const text = Astro.url.searchParams.get("repo").split("/").slice(-2).join("/");
+const text = repo?.split("/").slice(-2).join("/");
 ---
 
 <Layout title="Loading... ">
@@ -27,8 +27,8 @@ const text = Astro.url.searchParams.get("repo").split("/").slice(-2).join("/");
     }
 </style>
 
-<script define:vars={{repo: repo}}>
+<script define:vars={{text}}>
     setTimeout(() => {
-        window.location.href = `/app/?repo=${repo}`;
-    }, 1000);
+        window.location.href = `/app/${text}/README.md`;
+    }, 100);
 </script>

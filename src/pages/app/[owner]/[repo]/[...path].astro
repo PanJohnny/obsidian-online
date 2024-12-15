@@ -1,10 +1,12 @@
 ---
-import Layout from "../../layouts/Layout.astro";
-import {fixForURL, fixForURLDecode} from "../../lib/string-utils";
-import {fetchRepoTree, fetchFile} from "../../lib/github-utils";
+import Layout from "../../../../layouts/Layout.astro";
+import {fixForURL, fixForURLDecode} from "../../../../lib/string-utils";
+import {fetchRepoTree, fetchFile} from "../../../../lib/github-utils";
 import {marked} from "marked";
-import ExcalidrawViewer from "../../components/ExcalidrawViewer";
-import {decompress} from "../../lib/decompressor";
+import ExcalidrawViewer from "../../../../components/ExcalidrawViewer";
+import {decompress} from "../../../../lib/decompressor";
+import { init as MathJaxInit } from "mathjax";
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 
 // Utility Class to handle the repository and file operations
 class RepositoryViewer {
@@ -18,11 +20,15 @@ class RepositoryViewer {
     isExcalidraw;
     tree;
 
-    constructor(url) {
+    constructor(url, owner, repo, path, sha) {
         this.url = url;
-        this.repo = url.searchParams.get("repo");
-        this.view = url.searchParams.get("view");
-        this.path = url.searchParams.get("path");
+        this.repo = `${owner}/${repo}`;
+        if (sha) {
+            this.view = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`;
+        } else if (path) {
+            this.view = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+        }
+        this.path = path;
         this.displayData = "";
         this.displayName = "";
         this.isMarkdown = false;
@@ -42,17 +48,21 @@ class RepositoryViewer {
     }
 
     async fetchFileData() {
-        if (!this.view) return;
+        if (!this.view)
+            return;
 
         try {
-            this.view = fixForURLDecode(this.view);
             const fileData = await fetchFile(this.view);
+            
+            if (fileData.message) {
+                throw new Error(`Github API error (${fileData.status} ${fileData.message})`);
+            }
             const content = atob(fileData.content);
             this.displayData = new TextDecoder("utf-8").decode(
                 Uint8Array.from(content, (c) => c.charCodeAt(0)),
             );
 
-            this.path = this.path ? fixForURLDecode(this.path) : "";
+            this.path = this.path?this.path:fileData.path;
             this.displayName = this.path.split("/").pop();
             this.isMarkdown = this.path.endsWith(".md");
 
@@ -60,13 +70,7 @@ class RepositoryViewer {
                 this.displayName = this.displayName.replace(".md", "");
                 this.isExcalidraw = this.displayData.includes("excalidraw-plugin: parsed");
                 if (this.isExcalidraw) {
-                    this.isMarkdown = false;
-                    // ```compressed-json parse in code block
-                    const start = this.displayData.indexOf("```compressed-json");
-                    const end = this.displayData.indexOf("```", start + 1);
-                    this.displayData = this.displayData.slice(start + 18, end);
-                    // Decompress the display data to json using lz string
-                    this.displayData = JSON.parse(decompress(this.displayData));
+                    await this.processExcalidraw();
                     return;
                 }
                 this.displayData = this.formatMarkdown(this.displayData);
@@ -144,16 +148,13 @@ class RepositoryViewer {
                 }
             }
         } catch (error) {
-            console.error("Error fetching file data:", error);
+            this.displayName = "Open a file";
+            this.displayData = this.formatMarkdown(`Open a file to get started. \nIf you opened a file and still see an error, please report it.\n\n${error}`);
         }
     }
 
-    formatMarkdown(markdown) {
-        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/gm;
-        const wikilinkRegex = /\[\[([^\]]+)]]/g;
-
-        const findFilePathInTree = (filename, tree) => {
-            const stack = [...tree];
+    findFilePathInTree(filename) {
+            const stack = [...this.tree];
 
             while (stack.length) {
                 const node = stack.pop();
@@ -175,6 +176,10 @@ class RepositoryViewer {
             return null; // Not found
         };
 
+    formatMarkdown(markdown) {
+        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/gm;
+        const wikilinkRegex = /\[\[([^\]]+)]]/g;
+
         const replaceWikilinks = (match, content) => {
             if (content.startsWith("#")) {
                 // Handle heading links
@@ -184,11 +189,12 @@ class RepositoryViewer {
                 // Handle file links
                 const filename = content.trim();
 
-                const fileNode: any = findFilePathInTree(filename, this.tree);
+                const fileNode: any = this.findFilePathInTree(filename);
 
                 if (fileNode) {
-                    const url = `/app/?repo=${fixForURL(this.repo)}&view=${fixForURL(fileNode.url)}&path=${fixForURL(fileNode.path)}`;
-                    return `[${filename}](${url})`;
+                    // Uses anchor because of diacritics in filenames
+                    const url = `/app/${this.repo}/${fileNode.path}?sha=${fileNode.sha}`;
+                    return `<a href="${url}">${filename}</a>`;
                 } else {
                     return `[${filename}](#file-not-found)`; // Fallback if file isn't found
                 }
@@ -222,21 +228,21 @@ class RepositoryViewer {
     }
 
     buildNestedTree(tree) {
+        
         const root = [];
-
-        const findOrCreateFolder = (level, name, path, url = null) => {
+        const findOrCreateFolder = (level, name, path, sha = null) => {
             let folder = level.find(
                 (item) => item.name === name && item.children,
             );
             if (!folder) {
-                folder = {name, path, children: [], url};
+                folder = {name, path, children: [], sha};
                 level.push(folder);
             }
             return folder;
         };
 
-        const addFile = (level, name, path, url) => {
-            level.push({name, path, url});
+        const addFile = (level, name, path, sha) => {
+            level.push({name, path, sha});
         };
 
         tree.forEach((node) => {
@@ -254,9 +260,9 @@ class RepositoryViewer {
                             currentLevel,
                             part,
                             currentPath,
-                            node.url,
+                            node.sha,
                         )
-                        : addFile(currentLevel, part, currentPath, node.url);
+                        : addFile(currentLevel, part, currentPath, node.sha);
                 } else {
                     currentLevel = findOrCreateFolder(
                         currentLevel,
@@ -290,19 +296,98 @@ class RepositoryViewer {
                     </div>
                 `;
             }
+            
             return `
                 <div class="file">
-                    <a href="/app/?repo=${fixForURL(this.repo)}&path=${fixForURL(node.path)}&view=${fixForURL(node.url)}">${node.name}</a>
+                    <a href="/app/${this.repo}/${node.path}?sha=${node.sha}">${node.name}</a>
                 </div>
             `;
         };
 
-        return `<ul class="tree">${tree.map((node) => buildNode(node, node.path)).join("")}</ul>`;
+        return `<div class="tree">${tree.map((node) => buildNode(node, node.path)).join("")}</div>`;
+    }
+
+    async processExcalidraw() {
+        this.isMarkdown = false;
+        // ```compressed-json parse in code block
+        const start = this.displayData.indexOf("```compressed-json");
+        const end = this.displayData.indexOf("```", start + 1);
+
+        // Get attached files, between ## Embedded Files and %%
+        const startFiles = this.displayData.indexOf("## Embedded Files");
+        const endFiles = this.displayData.indexOf("%%", startFiles + 1);
+        const files = this.displayData.slice(startFiles + 19, endFiles)
+            .split("\n")
+            .filter((f) => f.trim().length != 0)
+            .reduce((acc, f) => {
+            const [key, value] = f.split(": ");
+            acc[key] = value;
+            return acc;
+            }, {});
+        
+        this.displayData = this.displayData.slice(start + 18, end);
+        // Decompress the display data to json using lz string
+        this.displayData = JSON.parse(decompress(this.displayData));
+
+        // Loop through the files, if the file is a wikilink, parse the url and fetch the file blob, then return data url
+        for (const key in files) {
+            if (files.hasOwnProperty(key)) {
+                const file = files[key];
+                if (file.startsWith("[[")) {
+                    const filename = file.slice(2, -2);
+                    
+                    const fileNode: any = this.findFilePathInTree(filename);
+                    
+                    if (fileNode) {
+                        files[key] = await fetchFile(fileNode.url).then(async (data) => {
+                            const contentBase64 = data.content; // Base64 content
+                            const fileType = filename.split('.').pop(); // Get file extension (e.g., png, jpg)
+                            
+                            // Determine MIME type based on file extension
+                            const mimeTypes = {
+                                png: 'image/png',
+                                jpg: 'image/jpeg',
+                                jpeg: 'image/jpeg',
+                                gif: 'image/gif',
+                                svg: 'image/svg+xml',
+                            };
+                            const mimeType = mimeTypes[fileType] || 'application/octet-stream';
+                        
+                            // Create a data URL
+                            const dataUrl = `data:${mimeType};base64,${contentBase64}`;
+                            
+                            return dataUrl;
+                        });
+                    }
+                } else if (file.startsWith("$")) {
+                    const latex = file.substring(2, file.length - 2);
+
+                    await (async () => {
+    const MathJax = await MathJaxInit({
+        loader: { load: ["input/tex", "output/svg"] },
+    });
+
+    const svg = await MathJax.tex2svg(latex, { em: 16, ex: 8, display: true }); 
+    const domParser = new DOMParser();
+    const svgNode = domParser.parseFromString(svg, "image/svg+xml");
+    const svgString = new XMLSerializer().serializeToString(svgNode);
+    const svgBase64 = btoa(svgString);
+
+    files[key] = `data:image/svg+xml;base64,${svgBase64}`;
+})();
+                }
+            }
+        }
+        
+        this.displayData.files = files;
     }
 }
 
+const {owner, repo, path} = Astro.params;
+let sha = Astro.url.searchParams.get("sha");
+
 // Initialize Repository Viewer
-const viewer = new RepositoryViewer(Astro.url);
+const viewer = new RepositoryViewer(`https://github.com/${owner}/${repo}`, owner, repo, path, sha);
 const res = await viewer.initialize();
 if (res) {
     return res;
@@ -318,7 +403,9 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         <div id="file-tree" set:html={treeHtml}/>
     </div>
     <main class="container">
-        <h1>{viewer.displayName}</h1>
+        <div class="heading">
+            <h1>{viewer.displayName}</h1>
+        </div>
         <hr/>
         {viewer.isMarkdown ? <div set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Funkčnost doposud omezena</p> : <pre>{viewer.displayData}</pre>}
     </main>
@@ -374,6 +461,10 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 
     @media print {
         #sidebar {
+            display: none;
+        }
+
+        .noprint {
             display: none;
         }
     }
@@ -441,7 +532,7 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         const folders = document.querySelectorAll(".folder > .toggle");
         folders.forEach((button) => {
             button.addEventListener("click", () => {
-                const parent = button.parentElement;
+                const parent = button.parentElement; //@ts-ignore
                 parent.classList.toggle("open");
             });
         });
