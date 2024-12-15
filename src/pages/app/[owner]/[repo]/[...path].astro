@@ -429,6 +429,30 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         padding: 3px;
     }
 
+    .folder::before {
+        content: "";
+        margin-right: 5px;
+        background-image: url("/folder.svg");
+        background-size: contain;
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        filter: invert(1);
+    }
+
+    .file::before {
+        content: "";
+        margin-right: 1px;
+        margin-left: 4px;
+        vertical-align: baseline;
+        background-image: url("/file.svg");
+        background-size: contain;
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        filter: invert(1);
+    }
+
     .folder > button {
         background: none;
         border: none;
@@ -477,6 +501,10 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         #sidebar {
             max-width: unset;
         }
+
+        .folder, .file {
+            padding: 10px;
+        }
     }
 
     svg {
@@ -492,6 +520,49 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
     mjx-container {
         display: block;
         overflow: scroll;
+    }
+
+    @media (prefers-color-scheme: light) {
+        .folder::before, .file::before {
+            filter: none;
+        }
+    }
+
+    @keyframes expand {
+        from {
+            max-height: 0;
+        }
+        to {
+            max-height: 1000px; /* Adjust as needed */
+        }
+    }
+
+    @keyframes collapse {
+        from {
+            max-height: 1000px; /* Adjust as needed */
+        }
+        to {
+            max-height: 0;
+        }
+    }
+
+    .folder > .nested {
+        overflow: hidden;
+        max-height: 0;
+    }
+
+    .folder.open > .nested {
+        animation: expand 1s ease-out forwards;
+    }
+
+    .folder:not(.open) > .nested {
+        animation: collapse 1s ease-out forwards;
+    }
+
+    @media (prefers-color-scheme: light) {
+        .file::before {
+            filter: none;
+        }
     }
 </style>
 
