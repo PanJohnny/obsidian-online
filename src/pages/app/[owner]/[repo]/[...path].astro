@@ -398,13 +398,23 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 ---
 
 <Layout title={viewer.displayName}>
-    <div id="sidebar">
+    <div id="sidebar" class="container">
+        <div class="top">
+            <small>{owner + "/" + repo}</small>
+        </div>
         <h2>Files</h2>
         <div id="file-tree" set:html={treeHtml}/>
+        <hr>
+        <a href="https://github.com/PanJohnny/obsidian-online">Powered by Obsidian Online</a>
     </div>
     <main class="container">
+        <div class="top">
+            <small>{path}</small>
+        </div>
         <div class="heading">
             <h1>{viewer.displayName}</h1>
+            <button id="toc" class="heading-button" title="Table of Contents"><img src="/list.svg" aria-hidden/> Table of Contents</button>
+            <a href="#sidebar" role="button" class="phone heading-button"><img src="/folder.svg" aria-hidden/> Files</a>
         </div>
         <hr/>
         {viewer.isMarkdown ? <div set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Funkčnost doposud omezena</p> : <pre>{viewer.displayData}</pre>}
@@ -420,6 +430,11 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 </Layout>
 
 <style is:global>
+    .top {
+        position: absolute;
+        top: 10px;
+    }
+
     .tree {
         list-style: none;
         padding-left: 1rem;
@@ -474,12 +489,12 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         flex-direction: row;
     }
 
-    button {
+    #sidebar button {
         all: unset;
+        cursor: default;
     }
 
     #sidebar {
-        margin: 15px;
         max-width: 30%;
     }
 
@@ -491,6 +506,24 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         .noprint {
             display: none;
         }
+
+        #toc {
+            display: none;
+        }
+    }
+
+    .heading-button img {
+        width: 1em;
+        height: 1em;
+        margin-right: 0.5em;
+        filter: invert(1);
+        vertical-align: text-top;
+    }
+
+    .heading-button {
+        padding: 0.5rem;
+        background-color: unset;
+        font-size: 80%;
     }
 
     @media screen and (max-width: 800px) {
@@ -504,6 +537,12 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 
         .folder, .file {
             padding: 10px;
+        }
+    }
+
+    @media screen and (min-width: 800px) {
+        .phone {
+            display: none !important;
         }
     }
 
@@ -523,8 +562,8 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
     }
 
     @media (prefers-color-scheme: light) {
-        .folder::before, .file::before {
-            filter: none;
+        .folder::before, .file::before, #toc img {
+            filter: none !important;
         }
     }
 
@@ -536,7 +575,12 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
             max-height: 1000px; /* Adjust as needed */
         }
     }
-
+    #toc img {
+        width: 1em;
+        height: 1em;
+        margin-right: 0.5em;
+        filter: invert(1);
+    }
     @keyframes collapse {
         from {
             max-height: 1000px; /* Adjust as needed */
@@ -563,6 +607,39 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
         .file::before {
             filter: none;
         }
+    }
+
+    details.toc {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        border: 1px solid;
+    }
+
+    details.toc summary {
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+
+    details.toc ul {
+        list-style: none;
+    }
+
+    details.toc li {
+        margin: 0.5rem 0;
+    }
+
+    details.toc a {
+        text-decoration: none;
+    }
+
+    details.toc a:hover {
+        text-decoration: underline;
+    }
+
+    details.toc[open] {
+        animation: expand 1s ease-out forwards;
     }
 </style>
 
@@ -608,6 +685,39 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
             });
         });
     });
+
+    // Add Table of Contents button
+    const tocButton = document.getElementById("toc");
+    if (tocButton) {
+        tocButton.addEventListener("click", () => {
+            const toc = document.createElement("details");
+            toc.classList.add("toc");
+            toc.classList.add("noprint");
+            toc.innerHTML = "<summary>Table of Contents</summary>";
+
+            const tocList = document.createElement("ul");
+            toc.appendChild(tocList);
+
+            const headings = document.querySelector("main")?.querySelectorAll("h1, h2, h3, h4, h5, h6");
+            headings?.forEach((heading) => {
+            const level = parseInt(heading.tagName.substring(1));
+            const listItem = document.createElement("li");
+            listItem.style.marginLeft = `${(level - 1) * 20}px`;
+
+            const link = document.createElement("a");
+            link.href = `#${heading.id}`;
+            link.textContent = heading.textContent;
+
+            listItem.appendChild(link);
+            tocList.appendChild(listItem);
+            });
+
+            toc.open = true;
+
+            tocButton.replaceWith(toc);
+            toc.scrollIntoView({ behavior: "smooth" });
+        });
+    }
 
     const drawer = new SmiDrawer();
 
