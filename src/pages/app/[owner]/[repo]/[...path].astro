@@ -431,8 +431,9 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 
 <style is:global>
     .top {
-        position: absolute;
-        top: 10px;
+        position: relative;
+        text-wrap: nowrap;
+        overflow: hidden;
     }
 
     .tree {
