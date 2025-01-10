@@ -479,10 +479,8 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
                     opacity: 0
                 }
             ], {
-                // Set a random duration from 500 to 1500ms
-                duration: Math.random() * 1000 + 500,
+                duration: Math.random() * 500 + 500,
                 easing: 'cubic-bezier(0, .9, .57, 1)',
-                // Delay every particle with a random value of 200ms
                 delay: Math.random() * 10
             });
 
@@ -792,7 +790,7 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
             setTimeout(() => {
                 tocButton.replaceWith(toc);
                 toc.scrollIntoView({ behavior: "smooth" });
-            }, 300);
+            }, 100);
         });
     }
 
