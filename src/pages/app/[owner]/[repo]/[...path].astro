@@ -412,9 +412,10 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
             <h1>{viewer.displayName}</h1>
             <button id="toc" class="heading-button" title="Table of Contents"><img src="/list.svg" aria-hidden/> Table of Contents</button>
             <a href="#sidebar" role="button" class="phone heading-button"><img src="/folder.svg" aria-hidden/> Files</a>
+            <button id="refresh" class="heading-button" title="Loads the latest version on GitHub"><img src="/refresh.svg" aria-hidden/> Latest version</button>
         </div>
         <hr/>
-        {viewer.isMarkdown ? <div set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Funkčnost doposud omezena</p> : <pre>{viewer.displayData}</pre>}
+        {viewer.isMarkdown ? <div id="content" set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Funkčnost doposud omezena</p> : <pre>{viewer.displayData}</pre>}
     </main>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async/>
     <script is:inline>
@@ -792,6 +793,72 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
                 toc.scrollIntoView({ behavior: "smooth" });
             }, 100);
         });
+    }
+
+    const hashCode = function(str) {
+        var hash = 0,
+            i, chr;
+        if (str.length === 0) return hash;
+        for (i = 0; i < str.length; i++) {
+            chr = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + chr;
+            hash |= 0; // Convert to 32bit integer
+        }
+        return hash;
+    }
+
+    const refreshButton = document.getElementById("refresh");
+    if (refreshButton) {
+        refreshButton.addEventListener("click", () => {
+            let contentElement = document.getElementById("content");
+            // Create hash of current content
+            let currentHash = hashCode(contentElement.textContent).toString(16);
+            localStorage.setItem("currentHash", currentHash);
+            // Remove query string
+            window.location.assign(new URL(window.location.href).pathname + "?reload");
+        });
+    }
+
+    function showMessage(message, backgroundColor = "grey", color = "white") {
+        // Displays a message to the user that will disappear after 3 seconds
+        const messageElement = document.createElement("div");
+        messageElement.textContent = message;
+        messageElement.style.position = "fixed";
+        // Center and 40 px from top
+        messageElement.style.top = "40px";
+        messageElement.style.left = "50%";
+        messageElement.style.transform = "translateX(-50%)";
+        messageElement.style.width = "fit-content";
+        messageElement.style.backgroundColor = backgroundColor;
+        messageElement.style.borderRadius = "12px";
+        // Make border color slightly darker than background color
+        messageElement.style.borderColor = `rgb(${backgroundColor.split(",").map((c) => parseInt(c) - 30).join(",")})`;
+        messageElement.style.borderWidth = "2px";
+        messageElement.style.borderStyle = "solid";
+        messageElement.style.color = color;
+        messageElement.style.textAlign = "center";
+        messageElement.style.padding = "1rem";
+        messageElement.style.zIndex = "1000";
+        document.body.appendChild(messageElement);
+        setTimeout(() => {
+            messageElement.remove();
+        }, 3000);
+    }
+
+    if (location.search === "?reload") {
+        let currentHash = localStorage.getItem("currentHash");
+        let contentElement = document.getElementById("content");
+        let newHash = hashCode(contentElement.textContent).toString(16);
+
+        console.log(currentHash, newHash);
+        if (currentHash == newHash) {
+            showMessage("No changes on GitHub", "orange");
+        } else {
+            showMessage("Content updated", "green");
+        }
+
+        // Remove query string
+        window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     const drawer = new SmiDrawer();
