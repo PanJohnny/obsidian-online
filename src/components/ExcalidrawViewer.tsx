@@ -1,3 +1,4 @@
+// @ts-ignore
 import React, { useState, useEffect } from 'react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 
@@ -14,7 +15,7 @@ const ExcalidrawViewer = ({ initialData }) => {
 
     return (
         <div style={{ height: '100vh', width: '100%' }}>
-            <Excalidraw initialData={initialData} theme={"dark"} viewModeEnabled={true} />
+            <Excalidraw initialData={initialData} theme={"dark"} viewModeEnabled={true}  />
         </div>
     );
 };

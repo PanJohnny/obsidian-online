@@ -1,387 +1,12 @@
 ---
 import Layout from "../../../../layouts/Layout.astro";
-import {fetchRepoTree, fetchFile} from "../../../../lib/github-utils";
 import {marked} from "marked";
 import ExcalidrawViewer from "../../../../components/ExcalidrawViewer";
-import {decompress} from "../../../../lib/decompressor";
-import { init as MathJaxInit } from "mathjax";
-import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
-
-// Utility Class to handle the repository and file operations
-class RepositoryViewer {
-    url;
-    repo;
-    view;
-    path;
-    displayData;
-    displayName;
-    isMarkdown;
-    isExcalidraw;
-    tree;
-
-    constructor(url, owner, repo, path, sha) {
-        this.url = url;
-        this.repo = `${owner}/${repo}`;
-        if (sha) {
-            this.view = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`;
-        } else if (path) {
-            this.view = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-        }
-        this.path = path;
-        this.displayData = "";
-        this.displayName = "";
-        this.isMarkdown = false;
-        this.tree = [];
-    }
-
-    async initialize() {
-        try {
-            this.tree = await this.fetchAndBuildTree();
-            const res = await this.fetchFileData();
-            if (res) {
-                return res;
-            }
-        } catch (error) {
-            console.error("Initialization error:", error);
-        }
-    }
-
-    async fetchFileData() {
-        if (!this.view)
-            return;
-
-        try {
-            const fileData = await fetchFile(this.view);
-            
-            if (fileData.message) {
-                throw new Error(`Github API error (${fileData.status} ${fileData.message})`);
-            }
-            const content = atob(fileData.content);
-            this.displayData = new TextDecoder("utf-8").decode(
-                Uint8Array.from(content, (c) => c.charCodeAt(0)),
-            );
-
-            this.path = this.path?this.path:fileData.path;
-            this.displayName = this.path.split("/").pop();
-            this.isMarkdown = this.path.endsWith(".md");
-
-            if (this.isMarkdown) {
-                this.displayName = this.displayName.replace(".md", "");
-                this.isExcalidraw = this.displayData.includes("excalidraw-plugin: parsed");
-                if (this.isExcalidraw) {
-                    await this.processExcalidraw();
-                    return;
-                }
-                this.displayData = this.formatMarkdown(this.displayData);
-            } else {
-                const fileExtension = this.path.split(".").pop();
-                let contentType;
-
-                switch (fileExtension) {
-                    case "html":
-                        contentType = "text/html";
-                        break;
-                    case "css":
-                        contentType = "text/css";
-                        break;
-                    case "js":
-                        contentType = "application/javascript";
-                        break;
-                    case "json":
-                        contentType = "application/json";
-                        break;
-                    case "txt":
-                        contentType = "text/plain";
-                        break;
-                    case "png":
-                        contentType = "image/png";
-                        break;
-                    case "jpg":
-                    case "jpeg":
-                        contentType = "image/jpeg";
-                        break;
-                    case "gif":
-                        contentType = "image/gif";
-                        break;
-                    case "svg":
-                        contentType = "image/svg+xml";
-                        break;
-                    default:
-                        contentType = "application/octet-stream";
-                }
-
-                if (contentType.startsWith("image/")) {
-                    const blob = new Blob(
-                        [
-                            Uint8Array.from(atob(fileData.content), (c) =>
-                                c.charCodeAt(0),
-                            ),
-                        ],
-                        {type: contentType},
-                    );
-                    return new Response(blob, {
-                        headers: {
-                            "Content-Type": contentType,
-                        },
-                    });
-                } else if (fileExtension === "pdf") {
-                    const blob = new Blob(
-                        [
-                            Uint8Array.from(atob(fileData.content), (c) =>
-                                c.charCodeAt(0),
-                            ),
-                        ],
-                        {type: "application/pdf"},
-                    );
-                    return new Response(blob, {
-                        headers: {
-                            "Content-Type": "application/pdf",
-                        },
-                    });
-                } else {
-                    return new Response(content, {
-                        headers: {
-                            "Content-Type": contentType,
-                        },
-                    });
-                }
-            }
-        } catch (error) {
-            this.displayName = "Open a file";
-            this.displayData = this.formatMarkdown(`Open a file to get started. \nIf you opened a file and still see an error, please report it.\n\n${error}`);
-        }
-    }
-
-    findFilePathInTree(filename) {
-            const stack = [...this.tree];
-
-            while (stack.length) {
-                const node = stack.pop();
-
-                if (!node.children) {
-                    // Check if it's a file and matches the filename
-                    const nodeName = node.name.endsWith(".md")
-                        ? node.name.slice(0, -3)
-                        : node.name;
-                    if (nodeName === filename) {
-                        return node; // Return the node containing the path and URL
-                    }
-                } else {
-                    // Add children to stack for further search
-                    stack.push(...node.children);
-                }
-            }
-
-            return null; // Not found
-        };
-
-    formatMarkdown(markdown) {
-        const smilesCodeBlockRegex = /```smiles\s+([\s\S]*?)```/gm;
-        const wikilinkRegex = /\[\[([^\]]+)]]/g;
-
-        const replaceWikilinks = (match, content) => {
-            if (content.startsWith("#")) {
-                // Handle heading links
-                const heading = content.slice(1).trim();
-                return `[${heading}](#${encodeURIComponent(heading)})`;
-            } else {
-                // Handle file links
-                const filename = content.trim();
-
-                const fileNode: any = this.findFilePathInTree(filename);
-
-                if (fileNode) {
-                    // Uses anchor because of diacritics in filenames
-                    const url = `/app/${this.repo}/${fileNode.path}?sha=${fileNode.sha}`;
-                    return `<a href="${url}">${filename}</a>`;
-                } else {
-                    return `[${filename}](#file-not-found)`; // Fallback if file isn't found
-                }
-            }
-        };
-
-        // Replace smiles code blocks first
-        let processedMarkdown = markdown.replace(
-            smilesCodeBlockRegex,
-            (match, smilesContent) => {
-                const trimmedSmiles = smilesContent.trim();
-                return `\n\n<svg data-smiles="${trimmedSmiles}" />\n\n`;
-            },
-        );
-
-        // Replace wikilinks
-        processedMarkdown = processedMarkdown.replace(
-            wikilinkRegex,
-            replaceWikilinks,
-        );
-
-        return processedMarkdown;
-    }
-
-    async fetchAndBuildTree() {
-        const [owner, repoName] = this.repo.split("/").slice(-2);
-        let tree = await fetchRepoTree(owner, repoName);
-
-        tree = tree.filter((f) => !f.path.startsWith("."));
-        return this.buildNestedTree(tree);
-    }
-
-    buildNestedTree(tree) {
-        
-        const root = [];
-        const findOrCreateFolder = (level, name, path, sha = null) => {
-            let folder = level.find(
-                (item) => item.name === name && item.children,
-            );
-            if (!folder) {
-                folder = {name, path, children: [], sha};
-                level.push(folder);
-            }
-            return folder;
-        };
-
-        const addFile = (level, name, path, sha) => {
-            level.push({name, path, sha});
-        };
-
-        tree.forEach((node) => {
-            const parts = node.path.split("/");
-            let currentLevel = root;
-            let currentPath = "";
-
-            parts.forEach((part, index) => {
-                const isLastPart = index === parts.length - 1;
-                currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-                if (isLastPart) {
-                    node.mode === "040000"
-                        ? findOrCreateFolder(
-                            currentLevel,
-                            part,
-                            currentPath,
-                            node.sha,
-                        )
-                        : addFile(currentLevel, part, currentPath, node.sha);
-                } else {
-                    currentLevel = findOrCreateFolder(
-                        currentLevel,
-                        part,
-                        currentPath,
-                    ).children;
-                }
-            });
-        });
-
-        return root;
-    }
-
-    buildTreeHtml(tree, openPath = "") {
-        const buildNode = (node, currentPath) => {
-            const isOpen = openPath && openPath.startsWith(currentPath);
-            if (node.children) {
-                return `
-                    <div class="folder ${isOpen ? "open" : ""}">
-                        <button class="toggle">${node.name}</button>
-                        <div class="nested">
-                            ${node.children
-                    .map((child) =>
-                        buildNode(
-                            child,
-                            `${currentPath}/${child.name}`,
-                        ),
-                    )
-                    .join("")}
-                        </div>
-                    </div>
-                `;
-            }
-            
-            return `
-                <div class="file">
-                    <a href="/app/${this.repo}/${node.path}?sha=${node.sha}">${node.name}</a>
-                </div>
-            `;
-        };
-
-        return `<div class="tree">${tree.map((node) => buildNode(node, node.path)).join("")}</div>`;
-    }
-
-    async processExcalidraw() {
-        this.isMarkdown = false;
-        // ```compressed-json parse in code block
-        const start = this.displayData.indexOf("```compressed-json");
-        const end = this.displayData.indexOf("```", start + 1);
-
-        // Get attached files, between ## Embedded Files and %%
-        const startFiles = this.displayData.indexOf("## Embedded Files");
-        const endFiles = this.displayData.indexOf("%%", startFiles + 1);
-        const files = this.displayData.slice(startFiles + 19, endFiles)
-            .split("\n")
-            .filter((f) => f.trim().length != 0)
-            .reduce((acc, f) => {
-            const [key, value] = f.split(": ");
-            acc[key] = value;
-            return acc;
-            }, {});
-        
-        this.displayData = this.displayData.slice(start + 18, end);
-        // Decompress the display data to json using lz string
-        this.displayData = JSON.parse(decompress(this.displayData));
-
-        // Loop through the files, if the file is a wikilink, parse the url and fetch the file blob, then return data url
-        for (const key in files) {
-            if (files.hasOwnProperty(key)) {
-                const file = files[key];
-                if (file.startsWith("[[")) {
-                    const filename = file.slice(2, -2);
-                    
-                    const fileNode: any = this.findFilePathInTree(filename);
-                    
-                    if (fileNode) {
-                        files[key] = await fetchFile(fileNode.url).then(async (data) => {
-                            const contentBase64 = data.content; // Base64 content
-                            const fileType = filename.split('.').pop(); // Get file extension (e.g., png, jpg)
-                            
-                            // Determine MIME type based on file extension
-                            const mimeTypes = {
-                                png: 'image/png',
-                                jpg: 'image/jpeg',
-                                jpeg: 'image/jpeg',
-                                gif: 'image/gif',
-                                svg: 'image/svg+xml',
-                            };
-                            const mimeType = mimeTypes[fileType] || 'application/octet-stream';
-                        
-                            // Create a data URL
-                            const dataUrl = `data:${mimeType};base64,${contentBase64}`;
-                            
-                            return {dataUrl, mimeType, id: key, created: Date.now()};
-                        });
-                    }
-                } else if (file.startsWith("$")) {
-                    const latex = file.substring(2, file.length - 2);
-
-                    await (async () => {
-    const MathJax = await MathJaxInit({
-        loader: { load: ["input/tex", "output/svg"] },
-    });
-
-                        const svgNode = MathJax.tex2svg(latex, { em: 16, ex: 8, display: true });
-                        const svgString = new XMLSerializer().serializeToString(svgNode);
-                        const svgBase64 = btoa(svgString);
-
-    files[key] = {dataUrl: `data:image/svg+xml;base64,${svgBase64}`, mimeType: "image/svg+xml", id: key, created: Date.now()};
-})();
-                }
-            }
-        }
-        
-        this.displayData.files = files;
-    }
-}
+import { RepositoryViewer } from "../../../../lib/repository-viewer";
 
 const {owner, repo, path} = Astro.params;
 let sha = Astro.url.searchParams.get("sha");
+let raw = Astro.url.searchParams.has("raw");
 
 // Initialize Repository Viewer
 const viewer = new RepositoryViewer(`https://github.com/${owner}/${repo}`, owner, repo, path, sha);
@@ -395,28 +20,30 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
 ---
 
 <Layout title={viewer.displayName}>
-    <div id="sidebar" class="container">
-        <div class="top">
-            <small>{owner + "/" + repo}</small>
-        </div>
-        <h2>Files</h2>
-        <div id="file-tree" set:html={treeHtml}/>
-        <hr>
-        <a href="https://github.com/PanJohnny/obsidian-online">Powered by Obsidian Online</a>
-    </div>
-    <main class="container">
-        <div class="top">
-            <small>{path}</small>
-        </div>
-        <div class="heading">
-            <h1>{viewer.displayName}</h1>
-            <button id="toc" class="heading-button" title="Table of Contents"><img src="/list.svg" aria-hidden/> Table of Contents</button>
-            <a href="#sidebar" role="button" class="phone heading-button"><img src="/folder.svg" aria-hidden/> Files</a>
-            <button id="refresh" class="heading-button" title="Loads the latest version on GitHub"><img src="/refresh.svg" aria-hidden/> Latest version</button>
-        </div>
-        <hr/>
-        {viewer.isMarkdown ? <div id="content" set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Funkčnost doposud omezena</p> : <pre>{viewer.displayData}</pre>}
-    </main>
+    {raw? (viewer.isExcalidraw? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> : <div class="container"><h1>{viewer.displayName}</h1><hr /><main class="container" set:html={marked(viewer.displayData)}/></div>):
+            <div id="sidebar" class="container">
+                <div class="top">
+                    <small>{owner + "/" + repo}</small>
+                </div>
+                <h2>Files</h2>
+                <div id="file-tree" set:html={treeHtml}/>
+                <hr>
+                <a href="https://github.com/PanJohnny/obsidian-online">Powered by Obsidian Online</a>
+            </div>
+            <main class="container">
+                <div class="top">
+                    <small>{path}</small>
+                </div>
+                <div class="heading">
+                    <h1>{viewer.displayName}</h1>
+                    <button id="toc" class="heading-button" title="Table of Contents"><img src="/list.svg" aria-hidden/> Table of Contents</button>
+                    <a href="#sidebar" role="button" class="phone heading-button"><img src="/folder.svg" aria-hidden/> Files</a>
+                    <button id="refresh" class="heading-button" title="Loads the latest version on GitHub"><img src="/refresh.svg" aria-hidden/> Latest version</button>
+                </div>
+                <hr/>
+                {viewer.isMarkdown? <div id="content" set:html={marked(viewer.displayData)}/> : viewer.isExcalidraw ? <ExcalidrawViewer initialData={viewer.displayData} client:only="react"/> <p>Limited functionality</p> : <pre>{viewer.displayData}</pre>}
+            </main>
+    }
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async/>
     <script is:inline>
         MathJax = {
@@ -429,7 +56,6 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
             // If yes, we add a click listener on our button
             document.querySelector('#toc').addEventListener('click', pop);
         }
-
 
         function pop (e) {
             // Quick check if user clicked the button using a keyboard
@@ -490,6 +116,15 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
                 particle.remove();
             };
         }
+
+        document.querySelectorAll("iframe").forEach((iframe) => {
+            // Fit the iframe to the content
+            iframe.onload = () => {
+                setTimeout(() => {
+                    iframe.style.height = iframe.contentWindow.document.body.scrollHeight + "px";
+                }, 300);
+            };
+        });
     </script>
 </Layout>
 
@@ -811,11 +446,14 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
     if (refreshButton) {
         refreshButton.addEventListener("click", () => {
             let contentElement = document.getElementById("content");
-            // Create hash of current content
-            let currentHash = hashCode(contentElement.textContent).toString(16);
-            localStorage.setItem("currentHash", currentHash);
-            // Remove query string
-            window.location.assign(new URL(window.location.href).pathname + "?reload");
+            if (contentElement) {
+                // Create hash of current content
+                let currentHash = hashCode(contentElement.textContent).toString(16);
+                localStorage.setItem("currentHash", currentHash);
+                window.location.assign(new URL(window.location.href).pathname + "?reload");
+            } else {
+                window.location.assign(new URL(window.location.href).pathname);
+            }
         });
     }
 
@@ -848,17 +486,19 @@ const treeHtml = viewer.buildTreeHtml(viewer.tree, viewer.path);
     if (location.search === "?reload") {
         let currentHash = localStorage.getItem("currentHash");
         let contentElement = document.getElementById("content");
-        let newHash = hashCode(contentElement.textContent).toString(16);
+        if (contentElement && currentHash) {
+            let newHash = hashCode(contentElement.textContent).toString(16);
 
-        console.log(currentHash, newHash);
-        if (currentHash == newHash) {
-            showMessage("No changes on GitHub", "orange");
-        } else {
-            showMessage("Content updated", "green");
+            console.log(currentHash, newHash);
+            if (currentHash == newHash) {
+                showMessage("No changes on GitHub", "orange");
+            } else {
+                showMessage("Content updated", "green");
+            }
+
+            // Remove query string
+            window.history.replaceState({}, document.title, window.location.pathname);
         }
-
-        // Remove query string
-        window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     const drawer = new SmiDrawer();
